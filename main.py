@@ -1,91 +1,109 @@
-# trade_simulator.py
-
 import asyncio
-import websockets
-import json
+import threading
 import time
-import numpy as np
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from datetime import datetime
+from models.fee_model import calculate_fee
+from models.market_impact import almgren_chriss_impact
+from models.slippage_model import SlippageModel
+from websocket.l2_orderbook_client import orderbook_client
+from utils.logger import setup_logger
 
-# Model classes
-class SlippageModel:
-    def __init__(self):
-        self.model = LinearRegression()
+logger = setup_logger()
 
-    def train(self, X, y):
-        self.model.fit(X, y)
+# Initialize the Slippage model once
+slippage_model = SlippageModel()
 
-    def predict(self, X):
-        return self.model.predict(X)
+# Global state to track processing latency
+last_tick_time = None
+processing_start = None
 
-class MarketImpactModel:
-    def __init__(self, eta=0.1, lambd=0.01):
-        self.eta = eta
-        self.lambd = lambd
+async def process_data(data, tick_time):
+    global last_tick_time, processing_start
 
-    def calculate_impact(self, Q, volatility):
-        return self.eta * Q + 0.5 * self.lambd * (volatility ** 2) * (Q ** 2)
+    processing_start = time.perf_counter()
 
-class FeeModel:
-    def __init__(self, fee_rate=0.001):
-        self.fee_rate = fee_rate
-
-    def calculate_fee(self, Q, price):
-        return self.fee_rate * Q * price
-
-class MakerTakerModel:
-    def __init__(self):
-        self.model = LogisticRegression()
-
-    def train(self, X, y):
-        self.model.fit(X, y)
-
-    def predict_proba(self, X):
-        return self.model.predict_proba(X)
-
-# WebSocket handler
-async def orderbook_client(callback):
-    url = "wss://ws.gomarket-cpp.goquant.io/ws/l2-orderbook/okx/BTC-USDT-SWAP"
-    async with websockets.connect(url) as ws:
-        while True:
-            msg = await ws.recv()
-            tick_time = time.perf_counter()
-            data = json.loads(msg)
-            callback(data, tick_time)
-
-# Callback function
-models = {
-    "slippage": SlippageModel(),
-    "impact": MarketImpactModel(),
-    "fee": FeeModel(),
-    "maker_taker": MakerTakerModel()
-}
-
-def process_data(data, tick_time):
-    # Simplified example
+    # Extract data
     bids = data.get("bids", [])
     asks = data.get("asks", [])
-    if not bids or not asks:
-        return
+    symbol = data.get("symbol", "")
+    exchange = data.get("exchange", "")
 
-    mid_price = (float(bids[0][0]) + float(asks[0][0])) / 2
-    quantity = 100 / mid_price
-    volatility = 0.01  # Placeholder, should be computed
+    # For demo, fixed inputs; ideally fetch from UI input panel
+    order_type = "market"
+    quantity_usd = 100.0
+    fee_tier = 0.001  # 0.1%
+    daily_volume = 1_000_000_000  # example, replace with real data
+    volatility = 0.02  # 2% daily volatility
 
-    fee = models["fee"].calculate_fee(quantity, mid_price)
-    impact = models["impact"].calculate_impact(quantity, volatility)
+    # Compute expected fees
+    expected_fees = calculate_fee(quantity_usd, fee_tier)
 
-    # Placeholder input for slippage and maker/taker
-    X_sample = np.array([[volatility, quantity]])
-    slippage = models["slippage"].predict(X_sample)[0] if hasattr(models["slippage"], 'model') else 0
-    maker_taker = models["maker_taker"].predict_proba(X_sample)[0] if hasattr(models["maker_taker"], 'model') else [0.5, 0.5]
+    # Compute market impact
+    market_impact = almgren_chriss_impact(quantity_usd, daily_volume, volatility)
 
-    net_cost = fee + impact + slippage
+    # Estimate slippage
+    slippage = slippage_model.predict(quantity_usd)
 
-    latency = time.perf_counter() - tick_time
+    # Net cost
+    net_cost = expected_fees + market_impact + slippage
 
-    print(f"Mid Price: {mid_price:.2f}, Quantity: {quantity:.6f}, Fee: {fee:.4f}, Impact: {impact:.4f}, Slippage: {slippage:.4f}, Net Cost: {net_cost:.4f}, Maker Prob: {maker_taker[0]:.2f}, Taker Prob: {maker_taker[1]:.2f}, Latency: {latency*1000:.2f}ms")
+    # Maker/Taker proportion (placeholder, e.g. 60% taker)
+    maker_taker_ratio = "Maker: 40%, Taker: 60%"
 
-# Entry point
+    # Latency
+    processing_end = time.perf_counter()
+    internal_latency_ms = (processing_end - processing_start) * 1000
+
+    # Compose output text
+    output = (
+        f"Symbol: {symbol}\n"
+        f"Exchange: {exchange}\n"
+        f"Order Type: {order_type}\n"
+        f"Quantity (USD): {quantity_usd}\n"
+        f"Expected Slippage: ${slippage:.2f}\n"
+        f"Expected Fees: ${expected_fees:.2f}\n"
+        f"Expected Market Impact: ${market_impact:.2f}\n"
+        f"Net Cost: ${net_cost:.2f}\n"
+        f"Maker/Taker Proportion: {maker_taker_ratio}\n"
+        f"Internal Latency (ms): {internal_latency_ms:.2f}\n"
+        f"Tick Timestamp: {tick_time}\n"
+        f"{'-'*40}\n"
+    )
+
+    print(output)
+
+def start_loop(loop):
+    """Run the asyncio loop in a new thread."""
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+def start_websocket_client(callback):
+    """Start the websocket client in asyncio loop."""
+    new_loop = asyncio.new_event_loop()
+    t = threading.Thread(target=start_loop, args=(new_loop,), daemon=True)
+    t.start()
+
+    # Schedule the client coroutine on the new loop
+    asyncio.run_coroutine_threadsafe(orderbook_client(callback), new_loop)
+
+def update_callback(data, tick_time):
+    # Wrapper for async call inside asyncio event loop
+    asyncio.run_coroutine_threadsafe(process_data(data, tick_time), asyncio.get_event_loop())
+
 if __name__ == "__main__":
-    asyncio.run(orderbook_client(process_data))
+    # Start websocket client
+    # Using a wrapper so that process_data is called asynchronously
+    # Because the UI runs on main thread, you may want to modify UI to accept these updates
+    def callback(data, tick_time):
+        asyncio.run(process_data(data, tick_time))
+
+    print("Starting Trade Simulator Main...")
+    # Run websocket client in background thread with callback
+    start_websocket_client(callback)
+
+    # To keep main thread alive for demo (replace with UI mainloop later)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")
