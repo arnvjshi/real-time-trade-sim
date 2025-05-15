@@ -1,3 +1,5 @@
+# trade_simulator.py
+
 import asyncio
 import websockets
 import json
