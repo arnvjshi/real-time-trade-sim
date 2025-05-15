@@ -152,4 +152,9 @@ python main.py
 * Regression and Logistic Regression techniques (scikit-learn documentation).
 * Real-time WebSocket data processing best practices.
 
+## Output
+
+![Trade Simulator Output](https://github.com/arnvjshi/real-time-trade-sim/raw/main/documentation/output.png)
+
+
 ---
