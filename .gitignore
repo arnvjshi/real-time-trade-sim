@@ -1,1 +1,9 @@
 .venv/
+venv/
+env/
+
+__pycache__/
+utils/__pycache__/
+models/__pycache__/
+websocket/__pycache__/
+*.py[cod]   
