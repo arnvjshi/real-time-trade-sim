@@ -19,7 +19,7 @@ processing_start = None
 
 async def process_data(data, tick_time):
     global last_tick_time, processing_start
-
+    last_tick_time = tick_time
     processing_start = time.perf_counter()
 
     # Extract data
