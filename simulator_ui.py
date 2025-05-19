@@ -1,3 +1,5 @@
+import io
+import sys
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -47,12 +49,10 @@ class TradeSimulatorUI:
         self.output_text = tk.Text(self.right_frame, height=20)
         self.output_text.pack(fill='both', expand=True)
 
-    def update_from_stream(self, data, tick_time):
-        import io
-        import sys
+    async def update_from_stream(self, data, tick_time):
         buffer = io.StringIO()
         sys.stdout = buffer
-        process_data(data, tick_time)
+        await process_data(data, tick_time)
         sys.stdout = sys.__stdout__
         self.output_text.insert(tk.END, buffer.getvalue())
         self.output_text.see(tk.END)
