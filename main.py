@@ -7,6 +7,8 @@ from models.market_impact import almgren_chriss_impact
 from models.slippage_model import SlippageModel
 from websocket.l2_orderbook_client import orderbook_client
 from utils.logger import setup_logger
+from simulator_ui import TradeSimulatorUI
+#simulator_ui_run = TradeSimulatorUI().ui_run
 
 logger = setup_logger()
 slippage_model = SlippageModel()
@@ -72,4 +74,5 @@ def main():
         print("Shutting down...")
 
 if __name__ == "__main__":
+    # simulator_ui_run()
     main()

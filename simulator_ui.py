@@ -57,7 +57,14 @@ class TradeSimulatorUI:
         self.output_text.insert(tk.END, buffer.getvalue())
         self.output_text.see(tk.END)
 
+    def ui_run():
+        root = tk.Tk()
+        app = TradeSimulatorUI(root)
+        root.mainloop()
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = TradeSimulatorUI(root)
     root.mainloop()
+
+    
